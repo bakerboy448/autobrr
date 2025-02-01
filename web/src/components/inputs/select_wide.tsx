@@ -1,20 +1,26 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-import type { FieldProps } from "formik";
+import { JSX } from "react";
 import { Field } from "formik";
-import Select, { components, ControlProps, InputProps, MenuProps, OptionProps } from "react-select";
-import { OptionBasicTyped } from "@domain/constants";
+import Select from "react-select";
 import CreatableSelect from "react-select/creatable";
-import { CustomTooltip } from "@components/tooltips/CustomTooltip";
+import type { FieldProps } from "formik";
+
+import { OptionBasicTyped } from "@domain/constants";
+import * as common from "@components/inputs/common";
+import { DocsTooltip } from "@components/tooltips/DocsTooltip";
+import { MultiSelect as RMSC } from "react-multi-select-component";
+import { MultiSelectOption } from "@components/inputs/select.tsx";
 
 interface SelectFieldProps<T> {
   name: string;
   label: string;
   help?: string;
   placeholder?: string;
+  required?: boolean;
   defaultValue?: OptionBasicTyped<T>;
   tooltip?: JSX.Element;
   options: OptionBasicTyped<T>[];
@@ -26,10 +32,12 @@ export function SelectFieldCreatable<T>({ name, label, help, placeholder, toolti
       <div>
         <label
           htmlFor={name}
-          className="block text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
+          className="block ml-px text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
         >
           <div className="flex">
-            {label} {tooltip && (<CustomTooltip anchorId={name}>{tooltip}</CustomTooltip>)}
+            {tooltip ? (
+              <DocsTooltip label={label}>{tooltip}</DocsTooltip>
+            ) : label}
           </div>
         </label>
       </div>
@@ -45,10 +53,12 @@ export function SelectFieldCreatable<T>({ name, label, help, placeholder, toolti
               isClearable={true}
               isSearchable={true}
               components={{
-                Input,
-                Control,
-                Menu,
-                Option
+                Input: common.SelectInput,
+                Control: common.SelectControl,
+                Menu: common.SelectMenu,
+                Option: common.SelectOption,
+                IndicatorSeparator: common.IndicatorSeparator,
+                DropdownIndicator: common.DropdownIndicator
               }}
               placeholder={placeholder ?? "Choose an option"}
               styles={{
@@ -67,13 +77,9 @@ export function SelectFieldCreatable<T>({ name, label, help, placeholder, toolti
               })}
               // value={field?.value ? field.value : options.find(o => o.value == field?.value)}
               value={field?.value ? { value: field.value, label: field.value  } : field.value}
-              onChange={(option) => {
-                if (option === null) {
-                  setFieldValue(field.name, "");
-                  return;
-                } else {
-                  setFieldValue(field.name, option.value ?? "");
-                }
+              onChange={(newValue: unknown) => {
+                const option = newValue as { value: string };
+                setFieldValue(field.name, option?.value ?? "");
               }}
               options={[...[...options, { value: field.value, label: field.value  }].reduce((map, obj) => map.set(obj.value, obj), new Map()).values()]}
             />
@@ -87,54 +93,13 @@ export function SelectFieldCreatable<T>({ name, label, help, placeholder, toolti
   );
 }
 
-const Input = (props: InputProps) => {
-  return (
-    <components.Input
-      {...props}
-      inputClassName="outline-none border-none shadow-none focus:ring-transparent"
-      className="text-gray-400 dark:text-gray-100"
-      children={props.children}
-    />
-  );
-};
-
-const Control = (props: ControlProps) => {
-  return (
-    <components.Control
-      {...props}
-      className="p-1 block w-full dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:text-gray-100 sm:text-sm"
-      children={props.children}
-    />
-  );
-};
-
-const Menu = (props: MenuProps) => {
-  return (
-    <components.Menu
-      {...props}
-      className="dark:bg-gray-800 border border-gray-300 dark:border-gray-700 dark:text-gray-400 rounded-md shadow-sm"
-      children={props.children}
-    />
-  );
-};
-
-const Option = (props: OptionProps) => {
-  return (
-    <components.Option
-      {...props}
-      className="dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-900 dark:focus:bg-gray-900"
-      children={props.children}
-    />
-  );
-};
-
 export function SelectField<T>({ name, label, help, placeholder, options }: SelectFieldProps<T>) {
   return (
     <div className="space-y-1 p-4 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
       <div>
         <label
           htmlFor={name}
-          className="block text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
+          className="block ml-px text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
         >
           {label}
         </label>
@@ -149,10 +114,12 @@ export function SelectField<T>({ name, label, help, placeholder, options }: Sele
               {...field}
               id={name}
               components={{
-                Input,
-                Control,
-                Menu,
-                Option
+                Input: common.SelectInput,
+                Control: common.SelectControl,
+                Menu: common.SelectMenu,
+                Option: common.SelectOption,
+                IndicatorSeparator: common.IndicatorSeparator,
+                DropdownIndicator: common.DropdownIndicator
               }}
               placeholder={placeholder ?? "Choose an option"}
               styles={{
@@ -171,13 +138,9 @@ export function SelectField<T>({ name, label, help, placeholder, options }: Sele
               })}
               // value={field?.value ? field.value : options.find(o => o.value == field?.value)}
               value={field?.value ? { value: field.value, label: field.value  } : field.value}
-              onChange={(option) => {
-                if (option === null) {
-                  setFieldValue(field.name, "");
-                  return;
-                } else {
-                  setFieldValue(field.name, option.value ?? "");
-                }
+              onChange={(newValue: unknown) => {
+                const option = newValue as { value: string };
+                setFieldValue(field.name, option?.value ?? "");
               }}
               options={[...[...options, { value: field.value, label: field.value  }].reduce((map, obj) => map.set(obj.value, obj), new Map()).values()]}
             />
@@ -191,16 +154,18 @@ export function SelectField<T>({ name, label, help, placeholder, options }: Sele
   );
 }
 
-export function SelectFieldBasic<T>({ name, label, help, placeholder, tooltip, defaultValue, options }: SelectFieldProps<T>) {
+export function SelectFieldBasic<T>({ name, label, help, placeholder, required, tooltip, defaultValue, options }: SelectFieldProps<T>) {
   return (
     <div className="space-y-1 p-4 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
       <div>
         <label
           htmlFor={name}
-          className="block text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
+          className="block ml-px text-sm font-medium text-gray-900 dark:text-white sm:pt-2"
         >
           <div className="flex">
-            {label} {tooltip && (<CustomTooltip anchorId={name}>{tooltip}</CustomTooltip>)}
+            {tooltip ? (
+              <DocsTooltip label={label}>{tooltip}</DocsTooltip>
+            ) : label}
           </div>
         </label>
       </div>
@@ -213,11 +178,14 @@ export function SelectFieldBasic<T>({ name, label, help, placeholder, tooltip, d
             <Select
               {...field}
               id={name}
+              required={required}
               components={{
-                Input,
-                Control,
-                Menu,
-                Option
+                Input: common.SelectInput,
+                Control: common.SelectControl,
+                Menu: common.SelectMenu,
+                Option: common.SelectOption,
+                IndicatorSeparator: common.IndicatorSeparator,
+                DropdownIndicator: common.DropdownIndicator
               }}
               placeholder={placeholder ?? "Choose an option"}
               styles={{
@@ -236,16 +204,77 @@ export function SelectFieldBasic<T>({ name, label, help, placeholder, tooltip, d
               })}
               defaultValue={defaultValue}
               value={field?.value && options.find(o => o.value == field?.value)}
-              onChange={(option) => {
-                if (option === null) {
-                  setFieldValue(field.name, "");
-                  return;
-                } else {
-                  setFieldValue(field.name, option.value ?? "");
-                }
+              onChange={(newValue: unknown) => {
+                const option = newValue as { value: string };
+                setFieldValue(field.name, option?.value ?? "");
               }}
               options={options}
             />
+          )}
+        </Field>
+        {help && (
+          <p className="mt-2 text-sm text-gray-500" id={`${name}-description`}>{help}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export interface MultiSelectFieldProps {
+  name: string;
+  label: string;
+  help?: string;
+  placeholder?: string;
+  required?: boolean;
+  tooltip?: JSX.Element;
+  options: OptionBasicTyped<number>[];
+}
+
+interface ListFilterMultiSelectOption {
+  id: number;
+  name: string;
+}
+
+export function ListFilterMultiSelectField({ name, label, help, tooltip, options, required }: MultiSelectFieldProps) {
+  return (
+    <div className="flex items-center space-y-1 p-4 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
+      <div>
+        <label
+          htmlFor={name}
+          className="block ml-px text-sm font-medium text-gray-900 dark:text-white"
+        >
+          <div className="flex">
+            {tooltip ? (
+              <DocsTooltip label={label}>{tooltip}</DocsTooltip>
+            ) : label}
+            <common.RequiredField required={required} />
+          </div>
+        </label>
+      </div>
+      <div className="sm:col-span-2">
+        <Field name={name} type="select" required={required}>
+          {({
+              field,
+              form: { setFieldValue }
+            }: FieldProps) => (
+              <>
+                <RMSC
+                  {...field}
+                  options={options}
+                  // disabled={disabled}
+                  labelledBy={name}
+                  // isCreatable={creatable}
+                  // onCreateOption={handleNewField}
+                  value={field.value && field.value.map((item: ListFilterMultiSelectOption) => ({
+                    value: item.id,
+                    label: item.name
+                  }))}
+                  onChange={(values: MultiSelectOption[]) => {
+                    const item = values && values.map((i) => ({ id: i.value, name: i.label }));
+                    setFieldValue(field.name, item);
+                  }}
+                />
+            </>
           )}
         </Field>
         {help && (

@@ -11,7 +11,7 @@ protocol: torrent
 supports:
   - irc
   - rss
-source: custom
+# source: custom
 settings:
   - name: passkey
     type: secret
@@ -21,7 +21,7 @@ settings:
 
 irc:
   network: SceneHD
-  server: irc.scenehd.eu
+  server: irc.scenehd.org
   port: 6697
   tls: true
   channels:
@@ -57,9 +57,14 @@ irc:
   parse:
     type: single
     lines:
-      - test:
-          - "[NEW] Some.Show.S08E20.EXTENDED.720p.BluRay.X264-GROUP [TV/720] https://scenehd.org/details.php?id=00000"
-        pattern: '\[NEW] (.+) \[(.+)] (https?\:\/\/.+\/).*id=(\d+)'
+      - tests:
+        - line: '[NEW] Some.Show.S08E20.EXTENDED.720p.BluRay.X264-GROUP [TV/720] https://scenehd.org/details.php?id=00000'
+          expect:
+            torrentName: Some.Show.S08E20.EXTENDED.720p.BluRay.X264-GROUP
+            category: TV/720
+            baseUrl: https://scenehd.org/
+            torrentId: "00000"
+        pattern: '\[NEW\] (.+) \[(.+)\] (https?\:\/\/.+\/).*id=(\d+)'
         vars:
           - torrentName
           - category

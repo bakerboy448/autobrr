@@ -1,4 +1,4 @@
-// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package feed
@@ -8,26 +8,36 @@ import (
 	"encoding/xml"
 	"net/url"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/autobrr/autobrr/internal/domain"
+	"github.com/autobrr/autobrr/internal/proxy"
 	"github.com/autobrr/autobrr/internal/release"
 	"github.com/autobrr/autobrr/pkg/errors"
+	"github.com/autobrr/autobrr/pkg/sanitize"
 
+	"github.com/dustin/go-humanize"
 	"github.com/mmcdole/gofeed"
 	"github.com/rs/zerolog"
 )
 
+var (
+	rxpSize      = regexp.MustCompile(`(?mi)(([0-9.]+)\s*(b|kb|kib|kilobyte|mb|mib|megabyte|gb|gib|gigabyte|tb|tib|terabyte))`)
+	rxpFreeleech = regexp.MustCompile(`(?mi)(\bfreeleech\b)`)
+	rxpHTML      = regexp.MustCompile(`(?mi)<.*?>`)
+)
+
 type RSSJob struct {
-	Feed              *domain.Feed
-	Name              string
-	IndexerIdentifier string
-	Log               zerolog.Logger
-	URL               string
-	Repo              domain.FeedRepo
-	CacheRepo         domain.FeedCacheRepo
-	ReleaseSvc        release.Service
-	Timeout           time.Duration
+	Feed       *domain.Feed
+	Name       string
+	Log        zerolog.Logger
+	URL        string
+	Repo       domain.FeedRepo
+	CacheRepo  domain.FeedCacheRepo
+	ReleaseSvc release.Service
+	Timeout    time.Duration
 
 	attempts int
 	errors   []error
@@ -35,32 +45,39 @@ type RSSJob struct {
 	JobID int
 }
 
-func NewRSSJob(feed *domain.Feed, name string, indexerIdentifier string, log zerolog.Logger, url string, repo domain.FeedRepo, cacheRepo domain.FeedCacheRepo, releaseSvc release.Service, timeout time.Duration) *RSSJob {
+func NewRSSJob(feed *domain.Feed, name string, log zerolog.Logger, url string, repo domain.FeedRepo, cacheRepo domain.FeedCacheRepo, releaseSvc release.Service, timeout time.Duration) FeedJob {
 	return &RSSJob{
-		Feed:              feed,
-		Name:              name,
-		IndexerIdentifier: indexerIdentifier,
-		Log:               log,
-		URL:               url,
-		Repo:              repo,
-		CacheRepo:         cacheRepo,
-		ReleaseSvc:        releaseSvc,
-		Timeout:           timeout,
+		Feed:       feed,
+		Name:       name,
+		Log:        log,
+		URL:        url,
+		Repo:       repo,
+		CacheRepo:  cacheRepo,
+		ReleaseSvc: releaseSvc,
+		Timeout:    timeout,
 	}
 }
 
 func (j *RSSJob) Run() {
 	ctx := context.Background()
 
-	if err := j.process(ctx); err != nil {
-		j.Log.Error().Err(err).Int("attempts", j.attempts).Msg("rss feed process error")
+	if err := j.RunE(ctx); err != nil {
+		j.Log.Err(err).Int("attempts", j.attempts).Msg("rss feed process error")
 
 		j.errors = append(j.errors, err)
-		return
 	}
 
 	j.attempts = 0
-	j.errors = []error{}
+	j.errors = j.errors[:0]
+}
+
+func (j *RSSJob) RunE(ctx context.Context) error {
+	if err := j.process(ctx); err != nil {
+		j.Log.Err(err).Msg("rss feed process error")
+		return err
+	}
+
+	return nil
 }
 
 func (j *RSSJob) process(ctx context.Context) error {
@@ -79,7 +96,6 @@ func (j *RSSJob) process(ctx context.Context) error {
 	releases := make([]*domain.Release, 0)
 
 	for _, item := range items {
-		item := item
 		j.Log.Debug().Msgf("item: %v", item.Title)
 
 		rls := j.processItem(item)
@@ -105,7 +121,7 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 		}
 	}
 
-	rls := domain.NewRelease(j.IndexerIdentifier)
+	rls := domain.NewRelease(domain.IndexerMinimal{ID: j.Feed.Indexer.ID, Name: j.Feed.Indexer.Name, Identifier: j.Feed.Indexer.Identifier, IdentifierExternal: j.Feed.Indexer.IdentifierExternal})
 	rls.Implementation = domain.ReleaseImplementationRSS
 
 	rls.ParseString(item.Title)
@@ -120,13 +136,20 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 		if e.Type == "application/x-bittorrent" && e.URL != "" {
 			rls.DownloadURL = e.URL
 		}
-		if e.Length != "" && e.Length != "39399" {
+		if e.Length != "" && e.Length != "1" && e.Length != "39399" {
 			rls.ParseSizeBytesString(e.Length)
+		}
+
+		if j.Feed.Settings != nil && j.Feed.Settings.DownloadType == domain.FeedDownloadTypeMagnet {
+			if !strings.HasPrefix(rls.MagnetURI, domain.MagnetURIPrefix) && strings.HasPrefix(e.URL, domain.MagnetURIPrefix) {
+				rls.MagnetURI = e.URL
+				rls.DownloadURL = ""
+			}
 		}
 	}
 
 	if rls.DownloadURL == "" && item.Link != "" {
-		rls.DownloadURL = item.Link
+		rls.DownloadURL = sanitize.URLEncoding(item.Link)
 	}
 
 	if rls.DownloadURL != "" {
@@ -136,8 +159,8 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 			if parentURL, _ := url.Parse(j.URL); parentURL != nil {
 				parentURL.Path, parentURL.RawPath = "", ""
 
-				// unescape the query params for max compatibility
-				escapedUrl, _ := url.QueryUnescape(parentURL.JoinPath(rls.DownloadURL).String())
+				downloadURL := sanitize.URLEncoding(rls.DownloadURL)
+				escapedUrl, _ := url.QueryUnescape(parentURL.JoinPath(downloadURL).String())
 				rls.DownloadURL = escapedUrl
 			}
 		}
@@ -161,9 +184,30 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 		rls.Uploader += v.Name
 	}
 
+	if item.Description != "" {
+		rls.Description = item.Description
+
+		if readSizeFromDescription(item.Description, rls) {
+			j.Log.Trace().Msgf("Set new size %d from description", rls.Size)
+		}
+	}
+
 	// When custom->size and enclosures->size differ, `ParseSizeBytesString` will pick the largest one.
 	if size, ok := item.Custom["size"]; ok {
 		rls.ParseSizeBytesString(size)
+	}
+
+	if customContentLength, ok := item.Custom["contentlength"]; ok {
+		if customContentLength != "" {
+			size, err := strconv.ParseUint(customContentLength, 10, 64)
+			if err != nil {
+				j.Log.Error().Err(err).Msgf("could not parse item.Custom.ContentLength: %s", customContentLength)
+			}
+
+			if size > rls.Size {
+				rls.Size = size
+			}
+		}
 	}
 
 	// additional size parsing
@@ -176,7 +220,7 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 		}
 
 		if element.ContentLength > 0 {
-			if uint64(element.ContentLength) != rls.Size {
+			if uint64(element.ContentLength) > rls.Size {
 				rls.Size = uint64(element.ContentLength)
 			}
 		}
@@ -192,10 +236,6 @@ func (j *RSSJob) processItem(item *gofeed.Item) *domain.Release {
 		rls.Bonus = []string{"Freeleech"}
 	}
 
-	if item.Description != "" {
-		rls.Description = item.Description
-	}
-
 	// add cookie to release for download if needed
 	if j.Feed.Cookie != "" {
 		rls.RawCookie = j.Feed.Cookie
@@ -208,7 +248,20 @@ func (j *RSSJob) getFeed(ctx context.Context) (items []*gofeed.Item, err error) 
 	ctx, cancel := context.WithTimeout(ctx, j.Timeout)
 	defer cancel()
 
-	feed, err := NewFeedParser(j.Timeout, j.Feed.Cookie).ParseURLWithContext(ctx, j.URL)
+	feedParser := NewFeedParser(j.Timeout, j.Feed.Cookie)
+
+	if j.Feed.UseProxy && j.Feed.Proxy != nil {
+		proxyClient, err := proxy.GetProxiedHTTPClient(j.Feed.Proxy)
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get proxy client")
+		}
+
+		feedParser.WithHTTPClient(proxyClient)
+
+		j.Log.Debug().Msgf("using proxy %s for feed %s", j.Feed.Proxy.Name, j.Feed.Name)
+	}
+
+	feed, err := feedParser.ParseURLWithContext(ctx, j.URL)
 	if err != nil {
 		return nil, errors.Wrap(err, "error fetching rss feed items")
 	}
@@ -228,17 +281,17 @@ func (j *RSSJob) getFeed(ctx context.Context) (items []*gofeed.Item, err error) 
 
 	//sort.Sort(feed)
 
+	toCache := make([]domain.FeedCacheItem, 0)
+
 	// set ttl to 1 month
 	ttl := time.Now().AddDate(0, 1, 0)
 
-	for _, i := range feed.Items {
-		item := i
-
+	for _, item := range feed.Items {
 		key := item.GUID
 		if len(key) == 0 {
-			key = item.Title
+			key = item.Link
 			if len(key) == 0 {
-				continue
+				key = item.Title
 			}
 		}
 
@@ -252,15 +305,26 @@ func (j *RSSJob) getFeed(ctx context.Context) (items []*gofeed.Item, err error) 
 			continue
 		}
 
-		j.Log.Debug().Msgf("found new release: %s", i.Title)
+		j.Log.Debug().Msgf("found new release: %s", item.Title)
 
-		if err := j.CacheRepo.Put(j.Feed.ID, key, []byte(item.Title), ttl); err != nil {
-			j.Log.Error().Err(err).Str("entry", key).Msg("cache.Put: error storing item in cache")
-			continue
-		}
+		toCache = append(toCache, domain.FeedCacheItem{
+			FeedId: strconv.Itoa(j.Feed.ID),
+			Key:    key,
+			Value:  []byte(item.Title),
+			TTL:    ttl,
+		})
 
 		// only append if we successfully added to cache
 		items = append(items, item)
+	}
+
+	if len(toCache) > 0 {
+		go func(items []domain.FeedCacheItem) {
+			ctx := context.Background()
+			if err := j.CacheRepo.PutMany(ctx, items); err != nil {
+				j.Log.Error().Err(err).Msg("cache.PutMany: error storing items in cache")
+			}
+		}(toCache)
 	}
 
 	// send to filters
@@ -281,9 +345,7 @@ func isNewerThanMaxAge(maxAge int, item, now time.Time) bool {
 // isFreeleech basic freeleech parsing
 func isFreeleech(str []string) bool {
 	for _, s := range str {
-		var re = regexp.MustCompile(`(?mi)(\bfreeleech\b)`)
-
-		match := re.FindAllString(s, -1)
+		match := rxpFreeleech.FindAllString(s, -1)
 
 		if len(match) > 0 {
 			return true
@@ -293,9 +355,34 @@ func isFreeleech(str []string) bool {
 	return false
 }
 
+// readSizeFromDescription get size from description
+func readSizeFromDescription(str string, r *domain.Release) bool {
+	clean := rxpHTML.ReplaceAllString(str, " ")
+
+	found := false
+
+	for _, sz := range rxpSize.FindAllString(clean, -1) {
+		if sz == "" {
+			continue
+		}
+
+		s, err := humanize.ParseBytes(sz)
+		if err != nil {
+			continue
+		}
+
+		if s > r.Size {
+			found = true
+			r.Size = s
+		}
+	}
+
+	return found
+}
+
 // itemCustomElement
 // used for some feeds like Aviztas network
 type itemCustomElement struct {
-	ContentLength int64  `xml:"contentLength"`
+	ContentLength int64  `xml:"contentLength,contentlength"`
 	InfoHash      string `xml:"infoHash"`
 }

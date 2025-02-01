@@ -1,4 +1,4 @@
-// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package config
@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -44,6 +45,14 @@ port = 7474
 # Optional
 #
 #baseUrl = "/autobrr/"
+
+# Base url mode legacy
+# This is kept for compatibility with older versions doing url rewrite on the proxy.
+# If you use baseUrl you can set this to false and skip any url rewrite in your proxy.
+#
+# Default: true
+#
+baseUrlModeLegacy = true
 
 # autobrr logs file
 # If not defined, logs to stdout
@@ -84,6 +93,65 @@ checkForUpdates = true
 # Session secret
 #
 sessionSecret = "{{ .sessionSecret }}"
+
+# Database Max Backups
+#
+# Default: 5
+#
+#databaseMaxBackups = 5
+
+# Golang pprof profiling and tracing
+#
+#profilingEnabled = false
+#
+#profilingHost = "127.0.0.1"
+#
+# Default: 6060
+#profilingPort = 6060
+
+# OpenID Connect Configuration
+#
+# Enable OIDC authentication
+#oidcEnabled = false
+#
+# OIDC Issuer URL (e.g. https://auth.example.com)
+#oidcIssuer = ""
+#
+# OIDC Client ID
+#oidcClientId = ""
+#
+# OIDC Client Secret
+#oidcClientSecret = ""
+#
+# OIDC Redirect URL (e.g. http://localhost:7474/api/auth/oidc/callback)
+#oidcRedirectUrl = ""
+#
+# Disable Built In Login Form (only works when using external auth)
+#oidcDisableBuiltInLogin = false
+
+# Metrics
+#
+# Enable metrics endpoint
+#metricsEnabled = true
+#
+# Metrics server host
+#
+#metricsHost = "127.0.0.1"
+#
+# Metrics server port
+#
+#metricsPort = 9074
+#
+# Metrics basic auth
+#
+# Comma separate list of user:password. Password must be htpasswd bcrypt hashed. Use autobrrctl to generate.
+# Only enabled if correctly set with user:pass.
+#
+#metricsBasicAuthUsers = ""
+
+# Custom definitions
+#
+#customDefinitions = "test/definitions"
 `
 
 func (c *AppConfig) writeConfig(configPath string, configFile string) error {
@@ -115,9 +183,23 @@ func (c *AppConfig) writeConfig(configPath string, configFile string) error {
 			// if this file exists then the viewer is running
 			// from inside a lxc container so return true
 			host = "0.0.0.0"
+		} else if os.Getpid() == 1 {
+			// if we're running as pid 1, we're honoured.
+			// but there's a good chance this is an isolated namespace
+			// or a container.
+			host = "0.0.0.0"
+		} else if user := os.Getenv("USERNAME"); user == "ContainerAdministrator" || user == "ContainerUser" {
+			/* this is the correct code below, but golang helpfully Panics when it can't find netapi32.dll
+			   the issue was first reported 7 years ago, but is fixed in go 1.24 where the below code works.
+			*/
+			/*
+				 u, err := user.Current(); err == nil && u != nil &&
+				(u.Name == "ContainerAdministrator" || u.Name == "ContainerUser") {
+				// Windows conatiners run containers as ContainerAdministrator by default */
+			host = "0.0.0.0"
 		} else if pd, _ := os.Open("/proc/1/cgroup"); pd != nil {
 			defer pd.Close()
-			b := make([]byte, 4096, 4096)
+			b := make([]byte, 4096)
 			pd.Read(b)
 			if strings.Contains(string(b), "/docker") || strings.Contains(string(b), "/lxc") {
 				host = "0.0.0.0"
@@ -166,50 +248,229 @@ type Config interface {
 
 type AppConfig struct {
 	Config *domain.Config
-	m      sync.Mutex
+	m      *sync.Mutex
 }
 
 func New(configPath string, version string) *AppConfig {
-	c := &AppConfig{}
+	c := &AppConfig{
+		m: new(sync.Mutex),
+	}
 	c.defaults()
 	c.Config.Version = version
 	c.Config.ConfigPath = configPath
 
 	c.load(configPath)
+	c.loadFromEnv()
 
 	return c
 }
 
 func (c *AppConfig) defaults() {
 	c.Config = &domain.Config{
-		Version:           "dev",
-		Host:              "localhost",
-		Port:              7474,
-		LogLevel:          "TRACE",
-		LogPath:           "",
-		LogMaxSize:        50,
-		LogMaxBackups:     3,
-		BaseURL:           "/",
-		SessionSecret:     api.GenerateSecureToken(16),
-		CustomDefinitions: "",
-		CheckForUpdates:   true,
-		DatabaseType:      "sqlite",
-		PostgresHost:      "",
-		PostgresPort:      0,
-		PostgresDatabase:  "",
-		PostgresUser:      "",
-		PostgresPass:      "",
+		Version:               "dev",
+		Host:                  "localhost",
+		Port:                  7474,
+		LogLevel:              "TRACE",
+		LogPath:               "",
+		LogMaxSize:            50,
+		LogMaxBackups:         3,
+		DatabaseMaxBackups:    5,
+		BaseURL:               "/",
+		BaseURLModeLegacy:     true,
+		SessionSecret:         api.GenerateSecureToken(16),
+		CustomDefinitions:     "",
+		CheckForUpdates:       true,
+		DatabaseType:          "sqlite",
+		PostgresHost:          "",
+		PostgresPort:          0,
+		PostgresDatabase:      "",
+		PostgresUser:          "",
+		PostgresPass:          "",
+		PostgresSSLMode:       "disable",
+		PostgresExtraParams:   "",
+		ProfilingEnabled:      false,
+		ProfilingHost:         "127.0.0.1",
+		ProfilingPort:         6060,
+		MetricsEnabled:        false,
+		MetricsHost:           "127.0.0.1",
+		MetricsPort:           9074,
+		MetricsBasicAuthUsers: "",
 	}
 
 }
 
-func (c *AppConfig) load(configPath string) {
-	// or use viper.SetDefault(val, def)
-	//viper.SetDefault("host", config.Host)
-	//viper.SetDefault("port", config.Port)
-	//viper.SetDefault("logLevel", config.LogLevel)
-	//viper.SetDefault("logPath", config.LogPath)
+func (c *AppConfig) loadFromEnv() {
+	prefix := "AUTOBRR__"
 
+	if v := os.Getenv(prefix + "HOST"); v != "" {
+		c.Config.Host = v
+	}
+
+	if v := os.Getenv(prefix + "PORT"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.Port = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "BASE_URL"); v != "" {
+		c.Config.BaseURL = v
+	}
+
+	if v := os.Getenv(prefix + "BASE_URL_MODE_LEGACY"); v != "" {
+		c.Config.BaseURLModeLegacy = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "LOG_LEVEL"); v != "" {
+		c.Config.LogLevel = v
+	}
+
+	if v := os.Getenv(prefix + "LOG_PATH"); v != "" {
+		c.Config.LogPath = v
+	}
+
+	if v := os.Getenv(prefix + "LOG_MAX_SIZE"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.LogMaxSize = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "LOG_MAX_BACKUPS"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.LogMaxBackups = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "SESSION_SECRET"); v != "" {
+		c.Config.SessionSecret = v
+	}
+
+	if v := os.Getenv(prefix + "CUSTOM_DEFINITIONS"); v != "" {
+		c.Config.CustomDefinitions = v
+	}
+
+	if v := os.Getenv(prefix + "CHECK_FOR_UPDATES"); v != "" {
+		c.Config.CheckForUpdates = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "DATABASE_TYPE"); v != "" {
+		if validDatabaseType(v) {
+			c.Config.DatabaseType = v
+		}
+	}
+
+	if v := os.Getenv(prefix + "DATABASE_MAX_BACKUPS"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.DatabaseMaxBackups = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_HOST"); v != "" {
+		c.Config.PostgresHost = v
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_PORT"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.PostgresPort = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_DATABASE"); v != "" {
+		c.Config.PostgresDatabase = v
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_USER"); v != "" {
+		c.Config.PostgresUser = v
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_PASS"); v != "" {
+		c.Config.PostgresPass = v
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_SSLMODE"); v != "" {
+		c.Config.PostgresSSLMode = v
+	}
+
+	if v := os.Getenv(prefix + "POSTGRES_EXTRA_PARAMS"); v != "" {
+		c.Config.PostgresExtraParams = v
+	}
+
+	if v := os.Getenv(prefix + "PROFILING_ENABLED"); v != "" {
+		c.Config.ProfilingEnabled = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "PROFILING_HOST"); v != "" {
+		c.Config.ProfilingHost = v
+	}
+
+	if v := os.Getenv(prefix + "PROFILING_PORT"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.ProfilingPort = int(i)
+		}
+	}
+
+	// OIDC Configuration
+	if v := os.Getenv(prefix + "OIDC_ENABLED"); v != "" {
+		c.Config.OIDCEnabled = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "OIDC_ISSUER"); v != "" {
+		c.Config.OIDCIssuer = v
+	}
+
+	if v := os.Getenv(prefix + "OIDC_CLIENT_ID"); v != "" {
+		c.Config.OIDCClientID = v
+	}
+
+	if v := os.Getenv(prefix + "OIDC_CLIENT_SECRET"); v != "" {
+		c.Config.OIDCClientSecret = v
+	}
+
+	if v := os.Getenv(prefix + "OIDC_REDIRECT_URL"); v != "" {
+		c.Config.OIDCRedirectURL = v
+	}
+
+	if v := os.Getenv(prefix + "OIDC_DISABLE_BUILT_IN_LOGIN"); v != "" {
+		c.Config.OIDCDisableBuiltInLogin = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "METRICS_ENABLED"); v != "" {
+		c.Config.MetricsEnabled = strings.EqualFold(strings.ToLower(v), "true")
+	}
+
+	if v := os.Getenv(prefix + "METRICS_HOST"); v != "" {
+		c.Config.MetricsHost = v
+	}
+
+	if v := os.Getenv(prefix + "METRICS_PORT"); v != "" {
+		i, _ := strconv.ParseInt(v, 10, 32)
+		if i > 0 {
+			c.Config.MetricsPort = int(i)
+		}
+	}
+
+	if v := os.Getenv(prefix + "METRICS_BASIC_AUTH_USERS"); v != "" {
+		c.Config.MetricsBasicAuthUsers = v
+	}
+}
+
+func validDatabaseType(v string) bool {
+	valid := []string{"sqlite", "postgres"}
+	for _, s := range valid {
+		if s == v {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *AppConfig) load(configPath string) {
 	viper.SetConfigType("toml")
 
 	// clean trailing slash from configPath
@@ -234,19 +495,9 @@ func (c *AppConfig) load(configPath string) {
 		viper.AddConfigPath("$HOME/.autobrr")
 	}
 
-	viper.SetEnvPrefix("AUTOBRR")
-
 	// read config
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("config read error: %q", err)
-	}
-
-	for _, key := range viper.AllKeys() {
-		envKey := strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
-		err := viper.BindEnv(key, "AUTOBRR__"+envKey)
-		if err != nil {
-			log.Fatal("config: unable to bind env: " + err.Error())
-		}
 	}
 
 	if err := viper.Unmarshal(c.Config); err != nil {
@@ -255,8 +506,10 @@ func (c *AppConfig) load(configPath string) {
 }
 
 func (c *AppConfig) DynamicReload(log logger.Logger) {
+	viper.WatchConfig()
 	viper.OnConfigChange(func(e fsnotify.Event) {
 		c.m.Lock()
+		defer c.m.Unlock()
 
 		logLevel := viper.GetString("logLevel")
 		c.Config.LogLevel = logLevel
@@ -269,28 +522,23 @@ func (c *AppConfig) DynamicReload(log logger.Logger) {
 		c.Config.CheckForUpdates = checkUpdates
 
 		log.Debug().Msg("config file reloaded!")
-
-		c.m.Unlock()
 	})
-	viper.WatchConfig()
-
-	return
 }
 
 func (c *AppConfig) UpdateConfig() error {
-	file := path.Join(c.Config.ConfigPath, "config.toml")
+	filePath := path.Join(c.Config.ConfigPath, "config.toml")
 
-	f, err := os.ReadFile(file)
+	f, err := os.ReadFile(filePath)
 	if err != nil {
-		return errors.Wrap(err, "could not read config file: %s", file)
+		return errors.Wrap(err, "could not read config file: %s", filePath)
 	}
 
 	lines := strings.Split(string(f), "\n")
 	lines = c.processLines(lines)
 
 	output := strings.Join(lines, "\n")
-	if err := os.WriteFile(file, []byte(output), 0644); err != nil {
-		return errors.Wrap(err, "could not write config file: %s", file)
+	if err := os.WriteFile(filePath, []byte(output), 0644); err != nil {
+		return errors.Wrap(err, "could not write config file: %s", filePath)
 	}
 
 	return nil
@@ -316,7 +564,13 @@ func (c *AppConfig) processLines(lines []string) []string {
 		}
 		if !foundLineLogPath && strings.Contains(line, "logPath =") {
 			if c.Config.LogPath == "" {
-				lines[i] = `#logPath = ""`
+				// Check if the line already has a value
+				matches := strings.Split(line, "=")
+				if len(matches) > 1 && strings.TrimSpace(matches[1]) != `""` {
+					lines[i] = line // Preserve the existing line
+				} else {
+					lines[i] = `#logPath = ""`
+				}
 			} else {
 				lines[i] = fmt.Sprintf("logPath = \"%s\"", c.Config.LogPath)
 			}

@@ -1,48 +1,67 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 import { MultiSelectOption } from "@components/inputs/select";
 
+export const AnnounceTypeOptions: MultiSelectOption[] = [
+  {
+    label: "New",
+    value: "NEW"
+  },
+  {
+    label: "Checked",
+    value: "CHECKED"
+  },
+  {
+    label: "Promo",
+    value: "PROMO"
+  },
+  {
+    label: "Promo GP",
+    value: "PROMO_GP"
+  },
+  {
+    label: "Resurrected",
+    value: "RESURRECTED"
+  }
+];
+
 export const resolutions = [
   "2160p",
   "1080p",
-  "1080i",
   "810p",
   "720p",
   "576p",
   "480p",
-  "480i"
 ];
 
 export const RESOLUTION_OPTIONS: MultiSelectOption[] = resolutions.map(r => ({ value: r, label: r, key: r }));
 
 export const codecs = [
-  "HEVC",
+  "AV1",
+  "AVC",
   "H.264",
   "H.265",
-  "x264",
-  "x265",
-  "AVC",
+  "HEVC",
+  "MPEG-2",
   "VC-1",
-  "AV1",
-  "XviD"
+  "XviD",
+  "x264",
+  "x265"
 ];
 
 export const CODECS_OPTIONS: MultiSelectOption[] = codecs.map(v => ({ value: v, label: v, key: v }));
 
 export const sources = [
-  "BluRay",
-  "UHD.BluRay",
-  "WEB-DL",
-  "WEB",
-  "WEBRip",
+  "AHDTV",
   "BD5",
   "BD9",
-  "BDr",
   "BDRip",
+  "BDr",
   "BRRip",
+  "BluRay",
   "CAM",
   "DVDR",
   "DVDRip",
@@ -53,7 +72,11 @@ export const sources = [
   "HDTS",
   "HDTV",
   "Mixed",
-  "SiteRip"
+  "SiteRip",
+  "UHD.BluRay",
+  "WEB",
+  "WEB-DL",
+  "WEBRip"
 ];
 
 export const SOURCES_OPTIONS: MultiSelectOption[] = sources.map(v => ({ value: v, label: v, key: v }));
@@ -206,6 +229,7 @@ export const languageOptions = [
   "PORTUGUESE",
   "ROMANiAN",
   "RUSSiAN",
+  "SLOVAK",
   "SPANiSH",
   "SUBBED",
   "SUBFORCED",
@@ -290,21 +314,6 @@ export const DownloadClientTypeOptions: RadioFieldsetOption[] = [
   }
 ];
 
-export const DownloadClientTypeNameMap: Record<DownloadClientType | string, string> = {
-  "DELUGE_V1": "Deluge v1",
-  "DELUGE_V2": "Deluge v2",
-  "QBITTORRENT": "qBittorrent",
-  "RTORRENT": "rTorrent",
-  "TRANSMISSION": "Transmission",
-  "PORLA": "Porla",
-  "RADARR": "Radarr",
-  "SONARR": "Sonarr",
-  "LIDARR": "Lidarr",
-  "WHISPARR": "Whisparr",
-  "READARR": "Readarr",
-  "SABNZBD": "SABnzbd"
-};
-
 export const ActionTypeOptions: RadioFieldsetOption[] = [
   { label: "Test", description: "A simple action to test a filter.", value: "TEST" },
   { label: "Watch dir", description: "Add filtered torrents to a watch directory", value: "WATCH_FOLDER" },
@@ -324,7 +333,7 @@ export const ActionTypeOptions: RadioFieldsetOption[] = [
   { label: "SABnzbd", description: "Add to SABnzbd", value: "SABNZBD" }
 ];
 
-export const ActionTypeNameMap = {
+export const ActionTypeNameMap: Record<ActionType, string> = {
   "TEST": "Test",
   "WATCH_FOLDER": "Watch folder",
   "WEBHOOK": "Webhook",
@@ -341,12 +350,33 @@ export const ActionTypeNameMap = {
   "WHISPARR": "Whisparr",
   "READARR": "Readarr",
   "SABNZBD": "SABnzbd"
-};
+} as const;
+
+export const DOWNLOAD_CLIENTS = [
+  "QBITTORRENT",
+  "DELUGE_V1",
+  "DELUGE_V2",
+  "RTORRENT",
+  "TRANSMISSION",
+  "PORLA",
+  "RADARR",
+  "SONARR",
+  "LIDARR",
+  "WHISPARR",
+  "READARR",
+  "SABNZBD"
+];
 
 export const ActionContentLayoutOptions: SelectGenericOption<ActionContentLayout>[] = [
   { label: "Original", description: "Original", value: "ORIGINAL" },
   { label: "Create subfolder", description: "Create subfolder", value: "SUBFOLDER_CREATE" },
   { label: "Don't create subfolder", description: "Don't create subfolder", value: "SUBFOLDER_NONE" }
+];
+
+export const ActionPriorityOptions: SelectGenericOption<ActionPriorityLayout>[] = [
+  { label: "Top of queue", description: "Top of queue", value: "MAX" },
+  { label: "Bottom of queue", description: "Bottom of queue", value: "MIN" },
+  { label: "Disabled", description: "Disabled", value: "" }
 ];
 
 export const ActionRtorrentRenameOptions: SelectGenericOption<ActionContentLayout>[] = [
@@ -379,23 +409,100 @@ export const PushStatusOptions: OptionBasic[] = [
   }
 ];
 
+export const ListTypeOptions: OptionBasicTyped<ListType>[] = [
+  {
+    label: "Sonarr",
+    value: "SONARR"
+  },
+  {
+    label: "Radarr",
+    value: "RADARR"
+  },
+  {
+    label: "Lidarr",
+    value: "LIDARR"
+  },
+  {
+    label: "Readarr",
+    value: "READARR"
+  },
+  {
+    label: "Whisparr",
+    value: "WHISPARR"
+  },
+  {
+    label: "MDBList",
+    value: "MDBLIST"
+  },
+  {
+    label: "Trakt",
+    value: "TRAKT"
+  },
+  {
+    label: "Plaintext",
+    value: "PLAINTEXT"
+  },
+  {
+    label: "Steam",
+    value: "STEAM"
+  },
+  {
+    label: "Metacritic",
+    value: "METACRITIC"
+  },
+  {
+    label: "AniList",
+    value: "ANILIST"
+  },
+];
+
+export const ListTypeNameMap: Record<ListType, string> = {
+  "SONARR": "Sonarr",
+  "RADARR": "Radarr",
+  "LIDARR": "Lidarr",
+  "READARR": "Readarr",
+  "WHISPARR": "Whisparr",
+  "MDBLIST": "MDBList",
+  "TRAKT": "Trakt",
+  "METACRITIC": "Metacritic",
+  "STEAM": "Steam",
+  "PLAINTEXT": "Plaintext",
+  "ANILIST": "AniList",
+};
+
 export const NotificationTypeOptions: OptionBasicTyped<NotificationType>[] = [
   {
     label: "Discord",
     value: "DISCORD"
   },
   {
+    label: "Gotify",
+    value: "GOTIFY"
+  },
+  {
+    label: "LunaSea",
+    value: "LUNASEA"
+  },
+  {
     label: "Notifiarr",
     value: "NOTIFIARR"
+  },
+  {
+    label: "Ntfy",
+    value: "NTFY"
+  },
+  {
+    label: "Pushover",
+    value: "PUSHOVER"
+  },
+  {
+    label: "Shoutrrr",
+    value: "SHOUTRRR"
   },
   {
     label: "Telegram",
     value: "TELEGRAM"
   },
-  {
-    label: "Pushover",
-    value: "PUSHOVER"
-  }
 ];
 
 export const IrcAuthMechanismTypeOptions: OptionBasicTyped<IrcAuthMechanism>[] = [
@@ -448,6 +555,21 @@ export const DownloadRuleConditionOptions: OptionBasic[] = [
   {
     label: "Max downloads reached",
     value: "MAX_DOWNLOADS_REACHED"
+  }
+];
+
+export const DownloadClientAuthType: OptionBasic[] = [
+  {
+    label: "None",
+    value: "NONE"
+  },
+  {
+    label: "Basic Auth",
+    value: "BASIC_AUTH"
+  },
+  {
+    label: "Digest Auth",
+    value: "DIGEST_AUTH"
   }
 ];
 
@@ -524,12 +646,12 @@ export const tagsMatchLogicOptions: OptionBasic[] = [
 
 export const ExternalFilterTypeOptions: RadioFieldsetOption[] = [
   { label: "Exec", description: "Run a custom command", value: "EXEC" },
-  { label: "Webhook", description: "Run webhook", value: "WEBHOOK" },
+  { label: "Webhook", description: "Run webhook", value: "WEBHOOK" }
 ];
 
 export const ExternalFilterTypeNameMap = {
   "EXEC": "Exec",
-  "WEBHOOK": "Webhook",
+  "WEBHOOK": "Webhook"
 };
 
 export const ExternalFilterWebhookMethodOptions: OptionBasicTyped<WebhookMethod>[] = [
@@ -537,5 +659,72 @@ export const ExternalFilterWebhookMethodOptions: OptionBasicTyped<WebhookMethod>
   { label: "POST", value: "POST" },
   { label: "PUT", value: "PUT" },
   { label: "PATCH", value: "PATCH" },
-  { label: "DELETE", value: "DELETE" },
+  { label: "DELETE", value: "DELETE" }
+];
+
+export const ProxyTypeOptions: OptionBasicTyped<ProxyType>[] = [
+  {
+    label: "SOCKS5",
+    value: "SOCKS5"
+  },
+];
+
+export const ListsTraktOptions: OptionBasic[] = [
+  {
+    label: "Anticipated TV",
+    value: "https://api.autobrr.com/lists/trakt/anticipated-tv"
+  },
+  {
+    label: "Popular TV",
+    value: "https://api.autobrr.com/lists/trakt/popular-tv"
+  },
+  {
+    label: "Upcoming Movies",
+    value: "https://api.autobrr.com/lists/trakt/upcoming-movies"
+  },
+  {
+    label: "Upcoming BluRay",
+    value: "https://api.autobrr.com/lists/trakt/upcoming-bluray"
+  },
+  {
+    label: "Popular TV",
+    value: "https://api.autobrr.com/lists/trakt/popular-tv"
+  },
+  {
+    label: "Steven Lu",
+    value: "https://api.autobrr.com/lists/stevenlu"
+  },
+];
+
+export const ListsMetacriticOptions: OptionBasic[] = [
+  {
+    label: "Upcoming Albums",
+    value: "https://api.autobrr.com/lists/metacritic/upcoming-albums"
+  },
+  {
+    label: "New Albums",
+    value: "https://api.autobrr.com/lists/metacritic/new-albums"
+  }
+];
+
+export const ListsMDBListOptions: OptionBasic[] = [
+  {
+    label: "Latest TV Shows",
+    value: "https://mdblist.com/lists/garycrawfordgc/latest-tv-shows/json"
+  },
+];
+
+export const ListsAniListOptions: OptionBasic[] = [
+  {
+    label: "Current anime season",
+    value: "https://api.autobrr.com/lists/anilist/seasonal"
+  },
+  {
+    label: "Trending animes",
+    value: "https://api.autobrr.com/lists/anilist/trending"
+  },
+  {
+    label: "Next anime season",
+    value: "https://api.autobrr.com/lists/anilist/upcoming"
+  },
 ];

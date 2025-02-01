@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
@@ -13,6 +13,7 @@ interface Filter {
   max_size: string;
   delay: number;
   priority: number;
+  announce_types: string[];
   max_downloads: number;
   max_downloads_unit: string;
   match_releases: string;
@@ -44,6 +45,8 @@ interface Filter {
   match_other: string[];
   except_other: string[];
   years: string;
+  months: string;
+  days: string;
   artists: string;
   albums: string;
   match_release_types: string[];
@@ -59,6 +62,8 @@ interface Filter {
   except_categories: string;
   match_uploaders: string;
   except_uploaders: string;
+  match_record_labels: string;
+  except_record_labels: string;
   match_language: string[];
   except_language: string[];
   tags: string;
@@ -67,10 +72,17 @@ interface Filter {
   except_tags_any: string;
   tags_match_logic: string;
   except_tags_match_logic: string;
+  min_seeders: number;
+  max_seeders: number;
+  min_leechers: number;
+  max_leechers: number;
+  is_auto_updated: boolean;
   actions_count: number;
+  actions_enabled_count: number;
   actions: Action[];
   indexers: Indexer[];
   external: ExternalFilter[];
+  release_profile_duplicate_id?: number;
 }
 
 interface Action {
@@ -87,8 +99,10 @@ interface Action {
   save_path?: string;
   paused?: boolean;
   ignore_rules?: boolean;
-  skip_hash_check: boolean;
+  first_last_piece_prio?: boolean;
+  skip_hash_check?: boolean;
   content_layout?: ActionContentLayout;
+  priority?: ActionPriorityLayout;
   limit_upload_speed?: number;
   limit_download_speed?: number;
   limit_ratio?: number;
@@ -103,11 +117,14 @@ interface Action {
   webhook_data: string,
   webhook_headers: string[];
   external_download_client_id?: number;
+  external_download_client?: string;
   client_id?: number;
   filter_id?: number;
 }
 
-type ActionContentLayout = "ORIGINAL" | "SUBFOLDER_CREATE" | "SUBFOLDER_NONE";
+type ActionContentLayout = "ORIGINAL" | "SUBFOLDER_CREATE" | "SUBFOLDER_NONE" | "";
+
+type ActionPriorityLayout = "MAX" | "MIN" | "";
 
 type ActionType = "TEST" | "EXEC" | "WATCH_FOLDER" | "WEBHOOK" | DownloadClientType;
 
@@ -130,5 +147,8 @@ interface ExternalFilter {
   webhook_data?: string,
   webhook_headers?: string;
   webhook_expect_status?: number;
+  webhook_retry_status?: string,
+  webhook_retry_attempts?: number;
+  webhook_retry_delay_seconds?: number;
   filter_id?: number;
 }

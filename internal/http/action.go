@@ -1,4 +1,4 @@
-// Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+// Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 package http
@@ -17,7 +17,7 @@ import (
 
 type actionService interface {
 	List(ctx context.Context) ([]domain.Action, error)
-	Store(ctx context.Context, action domain.Action) (*domain.Action, error)
+	Store(ctx context.Context, action *domain.Action) error
 	Delete(ctx context.Context, req *domain.DeleteActionRequest) error
 	ToggleEnabled(actionID int) error
 }
@@ -38,7 +38,7 @@ func (h actionHandler) Routes(r chi.Router) {
 	r.Get("/", h.getActions)
 	r.Post("/", h.storeAction)
 
-	r.Route("/{id}", func(r chi.Router) {
+	r.Route("/{actionID}", func(r chi.Router) {
 		r.Delete("/", h.deleteAction)
 		r.Put("/", h.updateAction)
 		r.Patch("/toggleEnabled", h.toggleActionEnabled)
@@ -56,47 +56,39 @@ func (h actionHandler) getActions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h actionHandler) storeAction(w http.ResponseWriter, r *http.Request) {
-	var (
-		data domain.Action
-		ctx  = r.Context()
-	)
-
+	var data *domain.Action
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		h.encoder.Error(w, err)
 		return
 	}
 
-	action, err := h.service.Store(ctx, data)
+	err := h.service.Store(r.Context(), data)
 	if err != nil {
 		h.encoder.Error(w, err)
 		return
 	}
 
-	h.encoder.StatusResponse(w, http.StatusCreated, action)
+	h.encoder.StatusResponse(w, http.StatusCreated, data)
 }
 
 func (h actionHandler) updateAction(w http.ResponseWriter, r *http.Request) {
-	var (
-		data domain.Action
-		ctx  = r.Context()
-	)
-
+	var data *domain.Action
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		h.encoder.Error(w, err)
 		return
 	}
 
-	action, err := h.service.Store(ctx, data)
+	err := h.service.Store(r.Context(), data)
 	if err != nil {
 		h.encoder.Error(w, err)
 		return
 	}
 
-	h.encoder.StatusResponse(w, http.StatusCreated, action)
+	h.encoder.StatusResponse(w, http.StatusCreated, data)
 }
 
 func (h actionHandler) deleteAction(w http.ResponseWriter, r *http.Request) {
-	actionID, err := parseInt(chi.URLParam(r, "id"))
+	actionID, err := parseInt(chi.URLParam(r, "actionID"))
 	if err != nil {
 		h.encoder.StatusError(w, http.StatusBadRequest, errors.New("bad param id"))
 		return
@@ -111,7 +103,7 @@ func (h actionHandler) deleteAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h actionHandler) toggleActionEnabled(w http.ResponseWriter, r *http.Request) {
-	actionID, err := parseInt(chi.URLParam(r, "id"))
+	actionID, err := parseInt(chi.URLParam(r, "actionID"))
 	if err != nil {
 		h.encoder.StatusError(w, http.StatusBadRequest, errors.New("bad param id"))
 		return

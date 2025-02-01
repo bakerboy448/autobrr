@@ -1,48 +1,52 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
-import { Dispatch, FC, Fragment, MouseEventHandler, useReducer, useRef, useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { toast } from "react-hot-toast";
-import { Listbox, Menu, Switch, Transition } from "@headlessui/react";
+import { Dispatch, FC, Fragment, MouseEventHandler, useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { Link } from '@tanstack/react-router'
+import {
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+  Menu,
+  MenuButton,
+  MenuItem,
+  MenuItems,
+  Transition
+} from "@headlessui/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormikValues } from "formik";
-import { useCallback } from "react";
-import { Tooltip } from "react-tooltip";
 import {
   ArrowsRightLeftIcon,
+  ArrowUpOnSquareIcon,
+  ChatBubbleBottomCenterTextIcon,
   CheckIcon,
   ChevronDownIcon,
-  PlusIcon,
   DocumentDuplicateIcon,
   EllipsisHorizontalIcon,
   PencilSquareIcon,
-  ChatBubbleBottomCenterTextIcon,
-  TrashIcon,
-  ArrowUpOnSquareIcon
+  PlusIcon, SparklesIcon,
+  TrashIcon
 } from "@heroicons/react/24/outline";
 import { ArrowDownTrayIcon } from "@heroicons/react/24/solid";
 
 import { FilterListContext, FilterListState } from "@utils/Context";
-import { classNames } from "@utils";
+import { classNames, CopyTextToClipboard } from "@utils";
 import { FilterAddForm } from "@forms";
 import { useToggle } from "@hooks/hooks";
 import { APIClient } from "@api/APIClient";
+import { FilterKeys } from "@api/query_keys";
+import { FiltersQueryOptions, IndexersOptionsQueryOptions } from "@api/queries";
+import { toast } from "@components/hot-toast";
 import Toast from "@components/notifications/Toast";
 import { EmptyListState } from "@components/emptystates";
 import { DeleteModal } from "@components/modals";
 
 import { Importer } from "./Importer";
-
-export const filterKeys = {
-  all: ["filters"] as const,
-  lists: () => [...filterKeys.all, "list"] as const,
-  list: (indexers: string[], sortOrder: string) => [...filterKeys.lists(), { indexers, sortOrder }] as const,
-  details: () => [...filterKeys.all, "detail"] as const,
-  detail: (id: number) => [...filterKeys.details(), id] as const
-};
+import { Tooltip } from "@components/tooltips/Tooltip";
+import { Checkbox } from "@components/Checkbox";
+import { RingResizeSpinner } from "@components/Icons";
 
 enum ActionType {
   INDEXER_FILTER_CHANGE = "INDEXER_FILTER_CHANGE",
@@ -63,20 +67,27 @@ type Actions =
 
 const FilterListReducer = (state: FilterListState, action: Actions): FilterListState => {
   switch (action.type) {
-  case ActionType.INDEXER_FILTER_CHANGE:
+  case ActionType.INDEXER_FILTER_CHANGE: {
     return { ...state, indexerFilter: action.payload };
-  case ActionType.INDEXER_FILTER_RESET:
+  }
+  case ActionType.INDEXER_FILTER_RESET: {
     return { ...state, indexerFilter: [] };
-  case ActionType.SORT_ORDER_CHANGE:
+  }
+  case ActionType.SORT_ORDER_CHANGE: {
     return { ...state, sortOrder: action.payload };
-  case ActionType.SORT_ORDER_RESET:
+  }
+  case ActionType.SORT_ORDER_RESET: {
     return { ...state, sortOrder: "" };
-  case ActionType.STATUS_CHANGE:
+  }
+  case ActionType.STATUS_CHANGE: {
     return { ...state, status: action.payload };
-  case ActionType.STATUS_RESET:
+  }
+  case ActionType.STATUS_RESET: {
     return { ...state, status: "" };
-  default:
+  }
+  default: {
     throw new Error(`Unhandled action type: ${action}`);
+  }
   }
 };
 
@@ -96,13 +107,13 @@ export function Filters() {
         setIsOpen={setShowImportModal}
       />
 
-      <div className="flex justify-between items-center flex-col sm:flex-row my-6 max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="flex justify-between items-center flex-row flex-wrap my-6 max-w-(--breakpoint-xl) mx-auto px-4 sm:px-6 lg:px-8">
         <h1 className="text-3xl font-bold text-black dark:text-white">Filters</h1>
         <Menu as="div" className="relative">
           {({ open }) => (
             <>
               <button
-                className="relative inline-flex items-center px-4 py-2 shadow-sm text-sm font-medium rounded-l-md text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
+                className="relative inline-flex items-center px-4 py-2 shadow-xs text-sm font-medium rounded-l-md transition text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
                 onClick={(e: { stopPropagation: () => void; }) => {
                   if (!open) {
                     e.stopPropagation();
@@ -113,9 +124,9 @@ export function Filters() {
                 <PlusIcon className="h-5 w-5 mr-1" />
                 Create Filter
               </button>
-              <Menu.Button className="relative inline-flex items-center px-2 py-2 border-l border-spacing-1 dark:border-black shadow-sm text-sm font-medium rounded-r-md text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500">
+              <MenuButton className="relative inline-flex items-center px-2 py-2 border-l border-spacing-1 dark:border-black shadow-xs text-sm font-medium rounded-r-md transition text-white bg-blue-600 dark:bg-blue-600 hover:bg-blue-700 dark:hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500">
                 <ChevronDownIcon className="h-5 w-5" />
-              </Menu.Button>
+              </MenuButton>
               <Transition
                 show={open}
                 as={Fragment}
@@ -126,22 +137,23 @@ export function Filters() {
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Menu.Items className="absolute z-10 right-0 mt-0.5 bg-white dark:bg-gray-700 rounded-md shadow-lg">
-                  <Menu.Item>
+                <MenuItems className="absolute z-10 right-0 mt-0.5 bg-white dark:bg-gray-700 rounded-md shadow-lg">
+                  <MenuItem>
                     {({ active }) => (
                       <button
                         type="button"
                         className={classNames(
                           active ? "bg-gray-50 dark:bg-gray-600" : "",
-                          "flex items-center w-full text-left py-2 px-4 text-sm font-medium text-gray-700 dark:text-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-blue-500"
+                          "flex items-center w-full text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-200 rounded-md focus:outline-hidden"
                         )}
                         onClick={() => setShowImportModal(true)}
                       >
-                        <ArrowUpOnSquareIcon className="mr-1 w-4 h-4" />Import filter
+                        <ArrowUpOnSquareIcon className="mr-1 w-4 h-4" />
+                        <span>Import filter</span>
                       </button>
                     )}
-                  </Menu.Item>
-                </Menu.Items>
+                  </MenuItem>
+                </MenuItems>
               </Transition>
             </>
           )}
@@ -183,11 +195,7 @@ function FilterList({ toggleCreateFilter }: any) {
     filterListState
   );
 
-  const { data, error } = useQuery({
-    queryKey: filterKeys.list(indexerFilter, sortOrder),
-    queryFn: ({ queryKey }) => APIClient.filters.find(queryKey[2].indexers, queryKey[2].sortOrder),
-    refetchOnWindowFocus: false
-  });
+  const { isLoading, data, error } = useQuery(FiltersQueryOptions(indexerFilter, sortOrder));
 
   useEffect(() => {
     FilterListContext.set({ indexerFilter, sortOrder, status });
@@ -200,9 +208,9 @@ function FilterList({ toggleCreateFilter }: any) {
   const filtered = filteredData(data ?? [], status);
 
   return (
-    <div className="max-w-screen-xl mx-auto pb-12 px-4 sm:px-6 lg:px-8 relative">
-      <div className="align-middle min-w-full rounded-t-lg rounded-b-lg shadow-lg bg-gray-50 dark:bg-gray-800">
-        <div className="rounded-t-lg flex justify-between px-4 bg-gray-50 dark:bg-gray-800  border-b border-gray-200 dark:border-gray-700">
+    <div className="max-w-(--breakpoint-xl) mx-auto pb-12 px-2 sm:px-6 lg:px-8 relative">
+      <div className="align-middle min-w-full rounded-t-lg rounded-b-lg shadow-table bg-gray-50 dark:bg-gray-800 border border-gray-250 dark:border-gray-775">
+        <div className="rounded-t-lg flex justify-between px-4 bg-gray-125 dark:bg-gray-850 border-b border-gray-200 dark:border-gray-750">
           <div className="flex gap-4">
             <StatusButton data={filtered.all} label="All" value="" currentValue={status} dispatch={dispatchFilter} />
             <StatusButton data={filtered.enabled} label="Enabled" value="enabled" currentValue={status} dispatch={dispatchFilter} />
@@ -215,19 +223,19 @@ function FilterList({ toggleCreateFilter }: any) {
           </div>
         </div>
 
-        {data && data.length > 0 ? (
-          <ol className="min-w-full">
-            {filtered.filtered.length > 0
-              ? filtered.filtered.map((filter: Filter, idx) => (
-                <FilterListItem filter={filter} values={filter} key={filter.id} idx={idx} />
-              ))
-
-              : <EmptyListState text={`No ${status} filters`} />
-            }
-          </ol>
-        ) : (
-          <EmptyListState text="No filters here.." buttonText="Add new" buttonOnClick={toggleCreateFilter} />
-        )}
+        {isLoading
+          ? <div className="flex items-center justify-center py-64"><RingResizeSpinner className="text-blue-500 size-24"/></div>
+          : data && data.length > 0 ? (
+              <ul className="min-w-full divide-y divide-gray-150 dark:divide-gray-775">
+                {filtered.filtered.length > 0
+                  ? filtered.filtered.map((filter: Filter, idx) => <FilterListItem filter={filter} key={filter.id} idx={idx}/>)
+                  : <EmptyListState text={`No ${status} filters`}/>
+                }
+              </ul>
+            ) : (
+              <EmptyListState text="No filters here.." buttonText="Add new" buttonOnClick={toggleCreateFilter}/>
+            )
+        }
       </div>
     </div>
   );
@@ -254,8 +262,10 @@ const StatusButton = ({ data, label, value, currentValue, dispatch }: StatusButt
   return (
     <button
       className={classNames(
-        currentValue == value ? "font-bold border-b-2 border-blue-500 dark:text-gray-100 text-gray-900" : "font-medium text-gray-600 dark:text-gray-400",
-        "py-4 pb-4 text-left text-xs tracking-wider"
+        "py-4 pb-4 text-left text-xs tracking-wider transition border-b-2",
+        currentValue === value
+          ? "font-bold  border-blue-500 dark:text-gray-100 text-gray-950"
+          : "font-medium border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
       )}
       onClick={setFilter}
       value={value}
@@ -266,7 +276,6 @@ const StatusButton = ({ data, label, value, currentValue, dispatch }: StatusButt
 };
 
 interface FilterItemDropdownProps {
-  values: FormikValues;
   filter: Filter;
   onToggle: (newState: boolean) => void;
 }
@@ -284,14 +293,7 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
         indexers: any;
         actions: any;
         actions_count: any;
-        external_script_enabled: any;
-        external_script_cmd: any;
-        external_script_args: any;
-        external_script_expect_status: any;
-        external_webhook_enabled: any;
-        external_webhook_host: any;
-        external_webhook_data: any;
-        external_webhook_expect_status: any;
+        actions_enabled_count: number;
       };
 
       const completeFilter = await APIClient.filters.getByID(filter.id) as Partial<CompleteFilterType>;
@@ -303,16 +305,9 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
       delete completeFilter.created_at;
       delete completeFilter.updated_at;
       delete completeFilter.actions_count;
+      delete completeFilter.actions_enabled_count;
       delete completeFilter.indexers;
       delete completeFilter.actions;
-      delete completeFilter.external_script_enabled;
-      delete completeFilter.external_script_cmd;
-      delete completeFilter.external_script_args;
-      delete completeFilter.external_script_expect_status;
-      delete completeFilter.external_webhook_enabled;
-      delete completeFilter.external_webhook_host;
-      delete completeFilter.external_webhook_data;
-      delete completeFilter.external_webhook_expect_status;
 
       // Remove properties with default values from the exported filter to minimize the size of the JSON string
       ["enabled", "priority", "smart_episode", "resolutions", "sources", "codecs", "containers", "tags_match_logic", "except_tags_match_logic"].forEach((key) => {
@@ -339,40 +334,17 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
 
       const finalJson = discordFormat ? "```JSON\n" + json + "\n```" : json;
 
-      const copyTextToClipboard = (text: string) => {
-        const textarea = document.createElement("textarea");
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        textarea.value = text;
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
+      // Asynchronously call copyTextToClipboard
+      CopyTextToClipboard(finalJson)
+        .then(() => {
+          toast.custom((t) => <Toast type="success" body="Filter copied to clipboard!" t={t} />);
 
-        try {
-          const successful = document.execCommand("copy");
-          if (successful) {
-            toast.custom((t) => <Toast type="success" body="Filter copied to clipboard." t={t} />);
-          } else {
-            toast.custom((t) => <Toast type="error" body="Failed to copy JSON to clipboard." t={t} />);
-          }
-        } catch (err) {
-          console.error("Unable to copy text", err);
-          toast.custom((t) => <Toast type="error" body="Failed to copy JSON to clipboard." t={t} />);
-        }
+        })
+        .catch((err) => {
+          console.error("could not copy filter to clipboard", err);
 
-        document.body.removeChild(textarea);
-      };
-
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(finalJson).then(() => {
-          toast.custom((t) => <Toast type="success" body="Filter copied to clipboard." t={t} />);
-        }, () => {
           toast.custom((t) => <Toast type="error" body="Failed to copy JSON to clipboard." t={t} />);
         });
-      } else {
-        copyTextToClipboard(finalJson);
-      }
-
     } catch (error) {
       console.error(error);
       toast.custom((t) => <Toast type="error" body="Failed to get filter data." t={t} />);
@@ -388,8 +360,8 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => APIClient.filters.delete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: filterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: filterKeys.detail(filter.id) });
+      queryClient.invalidateQueries({ queryKey: FilterKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: FilterKeys.detail(filter.id) });
 
       toast.custom((t) => <Toast type="success" body={`Filter ${filter?.name} was deleted`} t={t} />);
     }
@@ -398,7 +370,7 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
   const duplicateMutation = useMutation({
     mutationFn: (id: number) => APIClient.filters.duplicate(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: filterKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: FilterKeys.lists() });
 
       toast.custom((t) => <Toast type="success" body={`Filter ${filter?.name} duplicated`} t={t} />);
     }
@@ -408,7 +380,7 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
     <Menu as="div">
       <DeleteModal
         isOpen={deleteModalIsOpen}
-        isLoading={deleteMutation.isLoading}
+        isLoading={deleteMutation.isPending}
         toggle={toggleDeleteModal}
         buttonRef={cancelModalButtonRef}
         deleteAction={() => {
@@ -418,12 +390,12 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
         title={`Remove filter: ${filter.name}`}
         text="Are you sure you want to remove this filter? This action cannot be undone."
       />
-      <Menu.Button className="px-4 py-2">
+      <MenuButton className="px-4 py-2">
         <EllipsisHorizontalIcon
           className="w-5 h-5 text-gray-700 hover:text-gray-900 dark:text-gray-100 dark:hover:text-gray-400"
           aria-hidden="true"
         />
-      </Menu.Button>
+      </MenuButton>
       <Transition
         as={Fragment}
         enter="transition ease-out duration-100"
@@ -433,14 +405,19 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
         leaveFrom="transform opacity-100 scale-100"
         leaveTo="transform opacity-0 scale-95"
       >
-        <Menu.Items
-          className="absolute right-0 w-56 mt-2 origin-top-right bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 rounded-md shadow-lg ring-1 ring-black ring-opacity-10 focus:outline-none z-10"
+        <MenuItems
+          anchor={{ to: 'bottom end', padding: '8px' }} // padding: '8px' === m-2
+          className="absolute w-56 bg-white dark:bg-gray-825 divide-y divide-gray-200 dark:divide-gray-750 rounded-md shadow-lg border border-gray-250 dark:border-gray-750 focus:outline-hidden z-10"
         >
           <div className="px-1 py-1">
-            <Menu.Item>
+            <MenuItem>
               {({ active }) => (
                 <Link
-                  to={filter.id.toString()}
+                  // to={filter.id.toString()}
+                  to="/filters/$filterId"
+                  params={{
+                    filterId: filter.id
+                  }}
                   className={classNames(
                     active ? "bg-blue-600 text-white" : "text-gray-900 dark:text-gray-300",
                     "font-medium group flex rounded-md items-center w-full px-2 py-2 text-sm"
@@ -456,8 +433,8 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Edit
                 </Link>
               )}
-            </Menu.Item>
-            <Menu.Item>
+            </MenuItem>
+            <MenuItem>
               {({ active }) => (
                 <button
                   className={classNames(
@@ -475,8 +452,8 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Export JSON
                 </button>
               )}
-            </Menu.Item>
-            <Menu.Item>
+            </MenuItem>
+            <MenuItem>
               {({ active }) => (
                 <button
                   className={classNames(
@@ -495,8 +472,8 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Export JSON to Discord
                 </button>
               )}
-            </Menu.Item>
-            <Menu.Item>
+            </MenuItem>
+            <MenuItem>
               {({ active }) => (
                 <button
                   className={classNames(
@@ -515,8 +492,8 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Toggle
                 </button>
               )}
-            </Menu.Item>
-            <Menu.Item>
+            </MenuItem>
+            <MenuItem>
               {({ active }) => (
                 <button
                   className={classNames(
@@ -535,10 +512,10 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Duplicate
                 </button>
               )}
-            </Menu.Item>
+            </MenuItem>
           </div>
           <div className="px-1 py-1">
-            <Menu.Item>
+            <MenuItem>
               {({ active }) => (
                 <button
                   className={classNames(
@@ -557,9 +534,9 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
                   Delete
                 </button>
               )}
-            </Menu.Item>
+            </MenuItem>
           </div>
-        </Menu.Items>
+        </MenuItems>
       </Transition>
     </Menu>
   );
@@ -567,11 +544,10 @@ const FilterItemDropdown = ({ filter, onToggle }: FilterItemDropdownProps) => {
 
 interface FilterListItemProps {
   filter: Filter;
-  values: FormikValues;
   idx: number;
 }
 
-function FilterListItem({ filter, values, idx }: FilterListItemProps) {
+function FilterListItem({ filter, idx }: FilterListItemProps) {
   const queryClient = useQueryClient();
 
   const updateMutation = useMutation({
@@ -581,8 +557,8 @@ function FilterListItem({ filter, values, idx }: FilterListItemProps) {
       // We need to invalidate both keys here.
       // The filters key is used on the /filters page,
       // while the ["filter", filter.id] key is used on the details page.
-      queryClient.invalidateQueries({ queryKey: filterKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: filterKeys.detail(filter.id) });
+      queryClient.invalidateQueries({ queryKey: FilterKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: FilterKeys.detail(filter.id) });
     }
   });
 
@@ -594,99 +570,84 @@ function FilterListItem({ filter, values, idx }: FilterListItemProps) {
     <li
       key={filter.id}
       className={classNames(
-        "flex items-center hover:bg-gray-100 dark:hover:bg-[#222225] rounded-b-lg",
-        idx % 2 === 0 ?
-          "bg-white dark:bg-[#2e2e31]" :
-          "bg-gray-50 dark:bg-gray-800"
+        "flex items-center transition last:rounded-b-md py-0.5",
+        idx % 2 === 0
+          ? "bg-white dark:bg-gray-800"
+          : "bg-gray-75 dark:bg-gray-825"
       )}
     >
       <span
-        className="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-100"
+        className="pl-2 pr-4 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-100"
       >
-        <Switch
-          checked={filter.enabled}
-          onChange={toggleActive}
-          className={classNames(
-            filter.enabled ? "bg-blue-500 dark:bg-blue-500" : "bg-gray-200 dark:bg-gray-700",
-            "relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          )}
-        >
-          <span className="sr-only">Use setting</span>
-          <span
-            aria-hidden="true"
-            className={classNames(
-              filter.enabled ? "translate-x-5" : "translate-x-0",
-              "inline-block h-5 w-5 rounded-full bg-white dark:bg-gray-200 shadow transform ring-0 transition ease-in-out duration-200"
-            )}
-          />
-        </Switch>
+        <Checkbox
+          value={filter.enabled}
+          setValue={toggleActive}
+        />
       </span>
       <div className="py-2 flex flex-col overflow-hidden w-full justify-center">
-        <span className="w-full break-words whitespace-wrap text-sm font-bold text-gray-900 dark:text-gray-100">
-          <Link
-            to={filter.id.toString()}
-            className="hover:text-black dark:hover:text-gray-300"
-          >
-            {filter.name}
-          </Link>
-        </span>
-        <div className="flex items-center">
+        <Link
+          to="/filters/$filterId"
+          params={{
+            filterId: filter.id
+          }}
+          className="transition flex items-center w-full break-words whitespace-wrap text-sm font-bold text-gray-800 dark:text-gray-100 hover:text-black dark:hover:text-gray-350"
+        >
+          {filter.name} {filter.is_auto_updated && <SparklesIcon title="This filter is automatically updated by a list" className="ml-1 w-4 h-4 text-amber-500 dark:text-amber-400" aria-hidden="true"/>}
+        </Link>
+        <div className="flex items-center flex-wrap">
           <span className="mr-2 break-words whitespace-nowrap text-xs font-medium text-gray-600 dark:text-gray-400">
-            Priority: {filter.priority}
+            Priority: {filter.priority !== 0 ? (
+              <span className="text-gray-850 dark:text-gray-200">{filter.priority}</span>
+            ) : filter.priority}
           </span>
-          <span className="whitespace-nowrap text-xs font-medium text-gray-600 dark:text-gray-400">
-            <Link
-              to={`${filter.id.toString()}/actions`}
-              className="hover:text-black dark:hover:text-gray-300"
-            >
-              <span
-                id={`tooltip-actions-${filter.id}`}
-                className="flex items-center hover:cursor-pointer"
-              >
-                <span className={classNames(filter.actions_count == 0 ? "text-red-500" : "")}>
-                  <span
-                    className={
-                      classNames(
-                        filter.actions_count == 0 ? "hover:text-red-400 dark:hover:text-red-400" : ""
-                      )
-                    }
+          <span className="z-10 whitespace-nowrap text-xs font-medium text-gray-600 dark:text-gray-400">
+            {filter.actions_count === 0 || filter.actions_enabled_count === 0 ? (
+              <Tooltip
+                label={
+                  <Link
+                    to="/filters/$filterId/actions"
+                    params={{
+                      filterId: filter.id
+                    }}
+                    className="flex items-center cursor-pointer hover:text-black dark:hover:text-gray-300"
                   >
-                    Actions: {filter.actions_count}
-                  </span>
-                </span>
-                {filter.actions_count === 0 && (
+                    <span className={filter.actions_count === 0 || filter.actions_enabled_count === 0 ? "text-red-500 hover:text-red-400 dark:hover:text-red-400" : ""}>
+          Actions: {filter.actions_enabled_count}/{filter.actions_count}
+                    </span>
+                  </Link>
+                }
+              >
+                {filter.actions_count === 0 ? (
                   <>
-                    <span className="mr-2 ml-2 flex h-3 w-3 relative">
-                      <span className="animate-ping inline-flex h-full w-full rounded-full dark:bg-red-500 bg-red-400 opacity-75" />
-                      <span
-                        className="inline-flex absolute rounded-full h-3 w-3 dark:bg-red-500 bg-red-400"
-                      />
-                    </span>
-                    <span className="text-sm text-gray-800 dark:text-gray-500">
-                      <Tooltip
-                        style={{ width: "350px", fontSize: "12px", textTransform: "none", fontWeight: "normal", borderRadius: "0.375rem", backgroundColor: "#34343A", color: "#fff", whiteSpace: "pre-wrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                        delayShow={100}
-                        delayHide={150}
-                        data-html={true}
-                        place="right"
-                        data-tooltip-id={`tooltip-actions-${filter.id}`}
-                      >
-                        <p>You need to setup an action in the filter otherwise you will not get any snatches.</p>
-                      </Tooltip>
-                    </span>
+                    {"No actions defined. Set up actions to enable snatching."}
                   </>
-                )}
-              </span>
-            </Link>
+                ) : filter.actions_enabled_count === 0 ? (
+                  <>
+                    {"You need to enable at least one action in the filter otherwise you will not get any snatches."}
+                  </>
+                ) : null}
+              </Tooltip>
+            ) : (
+              <Link
+                to="/filters/$filterId/actions"
+                params={{
+                  filterId: filter.id
+                }}
+                className="flex items-center cursor-pointer hover:text-black dark:hover:text-gray-300"
+              >
+                <span>
+          Actions: {filter.actions_enabled_count}/{filter.actions_count}
+                </span>
+              </Link>
+            )}
           </span>
         </div>
       </div>
-      <span className="hidden md:flex px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+      <span className="hidden md:flex px-4 whitespace-nowrap text-sm font-medium text-gray-900">
         <FilterIndexers indexers={filter.indexers} />
       </span>
-      <span className="min-w-fit px-4 py-4 whitespace-nowrap text-right text-sm font-medium">
+      <span className="min-w-fit px-4 py-2 whitespace-nowrap text-right text-sm font-medium">
         <FilterItemDropdown
-          values={values}
           filter={filter}
           onToggle={toggleActive}
         />
@@ -701,8 +662,7 @@ interface IndexerTagProps {
 
 const IndexerTag: FC<IndexerTagProps> = ({ indexer }) => (
   <span
-    key={indexer.id}
-    className="hidden sm:inline-flex mr-2 items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-400"
+    className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-400"
   >
     {indexer.name}
   </span>
@@ -713,32 +673,31 @@ interface FilterIndexersProps {
 }
 
 function FilterIndexers({ indexers }: FilterIndexersProps) {
-  if (indexers.length <= 2) {
+  if (!indexers.length) {
     return (
-      <>
-        {indexers.length > 0
-          ? indexers.map((indexer, idx) => (
-            <IndexerTag key={idx} indexer={indexer} />
-          ))
-          : <span className="hidden sm:flex text-red-400 dark:text-red-800 p-1 text-xs tracking-wide rounded border border-red-400 dark:border-red-700 bg-red-100 dark:bg-red-400">NO INDEXERS SELECTED</span>
-        }
-      </>
+      <span className="hidden sm:inline-flex items-center px-2 py-1 rounded-md text-xs font-medium uppercase text-white bg-red-750">
+        NO INDEXER
+      </span>
     );
   }
 
   const res = indexers.slice(2);
 
   return (
-    <>
+    <div className="flex flex-row gap-1">
       <IndexerTag indexer={indexers[0]} />
-      <IndexerTag indexer={indexers[1]} />
-      <span
-        className="mr-2 inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-400"
-        title={res.map(v => v.name).toString()}
-      >
-        +{indexers.length - 2}
-      </span>
-    </>
+      {indexers.length > 1 ? (
+        <IndexerTag indexer={indexers[1]} />
+      ) : null}
+      {indexers.length > 2 ? (
+        <span
+          className="mr-2 inline-flex items-center px-2 py-0.5 rounded-md text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-400"
+          title={res.map(v => v.name).toString()}
+        >
+          +{indexers.length - 2}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -763,26 +722,26 @@ const ListboxFilter = ({
     onChange={onChange}
   >
     <div className="relative">
-      <Listbox.Button className="relative w-full py-2 pr-5 text-left dark:text-gray-400 text-sm">
+      <ListboxButton className="relative w-full py-2 pr-4 text-left dark:text-gray-400 text-sm">
         <span className="block truncate">{label}</span>
         <span className="absolute inset-y-0 right-0 flex items-center pointer-events-none">
           <ChevronDownIcon
-            className="w-3 h-3 text-gray-600 hover:text-gray-600"
+            className="w-3 h-3"
             aria-hidden="true"
           />
         </span>
-      </Listbox.Button>
+      </ListboxButton>
       <Transition
         as={Fragment}
         leave="transition ease-in duration-100"
         leaveFrom="opacity-100"
         leaveTo="opacity-0"
       >
-        <Listbox.Options
-          className="w-52 absolute z-10 mt-1 right-0 overflow-auto text-base bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 border border-opacity-5 border-black dark:border-gray-700 dark:border-opacity-40 focus:outline-none sm:text-sm"
+        <ListboxOptions
+          className="w-52 absolute z-10 mt-1 right-0 overflow-auto text-base bg-white dark:bg-gray-800 rounded-md shadow-lg max-h-60 border border-opacity-5 border-black dark:border-gray-700 dark:border-opacity-40 focus:outline-hidden sm:text-sm"
         >
           {children}
-        </Listbox.Options>
+        </ListboxOptions>
       </Transition>
     </div>
   </Listbox>
@@ -790,12 +749,9 @@ const ListboxFilter = ({
 
 // a unique option from a list
 const IndexerSelectFilter = ({ dispatch }: any) => {
-  const { data, isSuccess } = useQuery({
-    queryKey: ["filters", "indexers_options"],
-    queryFn: () => APIClient.indexers.getOptions(),
-    keepPreviousData: true,
-    staleTime: Infinity
-  });
+  const filterListState = FilterListContext.useValue();
+
+  const { data, isSuccess } = useQuery(IndexersOptionsQueryOptions());
 
   const setFilter = (value: string) => {
     if (value == undefined || value == "") {
@@ -810,11 +766,11 @@ const IndexerSelectFilter = ({ dispatch }: any) => {
     <ListboxFilter
       id="1"
       key="indexer-select"
-      label="Indexer"
-      currentValue={""}
+      label={data && filterListState.indexerFilter[0] ? `Indexer: ${data.find(i => i.identifier == filterListState.indexerFilter[0])?.name}` : "Indexer"}
+      currentValue={filterListState.indexerFilter[0] ?? ""}
       onChange={setFilter}
     >
-      <FilterOption label="All" />
+      <FilterOption label="All" value="" />
       {isSuccess && data?.map((indexer, idx) => (
         <FilterOption key={idx} label={indexer.name} value={indexer.identifier} />
       ))}
@@ -828,7 +784,7 @@ interface FilterOptionProps {
 }
 
 const FilterOption = ({ label, value }: FilterOptionProps) => (
-  <Listbox.Option
+  <ListboxOption
     className={({ active }) => classNames(
       "cursor-pointer select-none relative py-2 px-4",
       active ? "text-black dark:text-gray-200 bg-gray-100 dark:bg-gray-900" : "text-gray-700 dark:text-gray-400"
@@ -836,7 +792,7 @@ const FilterOption = ({ label, value }: FilterOptionProps) => (
     value={value}
   >
     {({ selected }) => (
-      <>
+      <div className="flex justify-between">
         <span
           className={classNames(
             "block truncate",
@@ -846,16 +802,18 @@ const FilterOption = ({ label, value }: FilterOptionProps) => (
           {label}
         </span>
         {selected ? (
-          <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500 dark:text-gray-400">
+          <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 dark:text-gray-400">
             <CheckIcon className="w-5 h-5" aria-hidden="true" />
           </span>
         ) : null}
-      </>
+      </div>
     )}
-  </Listbox.Option>
+  </ListboxOption>
 );
 
 export const SortSelectFilter = ({ dispatch }: any) => {
+  const filterListState = FilterListContext.useValue();
+
   const setFilter = (value: string) => {
     if (value == undefined || value == "") {
       dispatch({ type: ActionType.SORT_ORDER_RESET, payload: "" });
@@ -868,7 +826,11 @@ export const SortSelectFilter = ({ dispatch }: any) => {
     { label: "Name A-Z", value: "name-asc" },
     { label: "Name Z-A", value: "name-desc" },
     { label: "Priority highest", value: "priority-desc" },
-    { label: "Priority lowest", value: "priority-asc" }
+    { label: "Priority lowest", value: "priority-asc" },
+    { label: "Recently created first", value: "created_at-desc" },
+    { label: "Recently created last", value: "created_at-asc" },
+    { label: "Recently updated first", value: "updated_at-desc" },
+    { label: "Recently updated last", value: "updated_at-asc" }
   ];
 
   // Render a multi-select box
@@ -876,8 +838,8 @@ export const SortSelectFilter = ({ dispatch }: any) => {
     <ListboxFilter
       id="sort"
       key="sort-select"
-      label="Sort"
-      currentValue={""}
+      label={filterListState.sortOrder ? `Sort: ${options.find(o => o.value == filterListState.sortOrder)?.label}` : "Sort"}
+      currentValue={filterListState.sortOrder ?? ""}
       onChange={setFilter}
     >
       <>

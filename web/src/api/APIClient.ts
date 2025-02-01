@@ -1,22 +1,74 @@
 /*
- * Copyright (c) 2021 - 2023, Ludvig Lundgren and the autobrr contributors.
+ * Copyright (c) 2021 - 2025, Ludvig Lundgren and the autobrr contributors.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
 import { baseUrl, sseBaseUrl } from "@utils";
-import { AuthContext } from "@utils/Context";
 import { GithubRelease } from "@app/types/Update";
+import { AuthContext, AuthInfo } from "@utils/Context";
+import { ColumnFilter } from "@tanstack/react-table";
 
 type RequestBody = BodyInit | object | Record<string, unknown> | null;
 type Primitive = string | number | boolean | symbol | undefined;
+type ValidateResponse = {
+  username?: AuthInfo['username'];
+  auth_method?: AuthInfo['authMethod'];
+}
 
 interface HttpConfig {
+  /**
+   * One of "GET", "POST", "PUT", "PATCH", "DELETE", etc.
+   * See https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods
+   */
   method?: string;
+  /**
+   * JSON body for this request. Once this is set to an object,
+   * then `Content-Type` for this request is set to `application/json`
+   * automatically.
+   */
   body?: RequestBody;
+  /**
+   * Helper to work with a query string/search param of a URL.
+   * E.g. ?a=1&b=2&c=3
+   *
+   * Using this interface will automatically convert
+   * the object values into RFC-3986-compliant strings.
+   *
+   * Keys will *NOT* be sanitized, and any whitespace and
+   * invalid characters will remain.
+   *
+   * The only supported value types are:
+   * numbers, booleans, strings and flat 1-D arrays.
+   *
+   * Objects as values are not supported.
+   *
+   * The supported values are serialized as follows:
+   *  - undefined values are ignored
+   *  - empty strings are ignored
+   *  - empty strings inside arrays are ignored
+   *  - empty arrays are ignored
+   *  - arrays append each time with the key and for each child
+   *    e.g. `{ arr: [1, 2, 3] }` will yield `?arr=1&arr=2&arr=3`
+   *  - array items with an undefined value (or which serialize to an empty string) are ignored,
+   *    e.g. `{ arr: [1, undefined, undefined] }` will yield `?arr=1`
+   *    (NaN, +Inf, -Inf, etc. will remain since they are valid serializations)
+   */
   queryString?: Record<string, Primitive | Primitive[]>;
 }
 
-// See https://stackoverflow.com/a/62969380
+/**
+ * Encodes a string into a RFC-3986-compliant string.
+ *
+ * By default, encodeURIComponent will not encode
+ * any of the following characters: !'()*
+ *
+ * So a simple regex replace is done which will replace
+ * these characters with their hex-value representation.
+ *
+ * @param str Input string (dictionary value).
+ * @returns A RFC-3986-compliant string variation of the input string.
+ * @note See https://stackoverflow.com/a/62969380
+ */
 function encodeRFC3986URIComponent(str: string): string {
   return encodeURIComponent(str).replace(
     /[!'()*]/g,
@@ -24,13 +76,37 @@ function encodeRFC3986URIComponent(str: string): string {
   );
 }
 
+/**
+ * Makes a request on the network and returns a promise.
+ *
+ * This function serves as both a request builder and a response interceptor.
+ *
+ * @param endpoint The endpoint path relative to the backend instance.
+ * @param config A dictionary which specifies what information this network
+ * request must relay during transport. See @ref HttpClient.
+ * @returns A promise for the *sent* network request which must *  be await'ed or .then()-chained before it can be used.
+ *
+ * If the status code returned by the server is in the [200, 300) range, then this is considered a success.
+ *    - This function resolves with an empty dictionary object, i.e. {}, if the status code is 204 No data
+ *    - The parsed JSON body is returned by this method if the server returns `Content-Type: application/json`.
+ *    - In all other scenarios, the raw Response object from window.fetch() is returned,
+ *      which must be handled manually by awaiting on one of its methods.
+ *
+ * The following is done if the status code that the server returns is NOT successful,
+ * that is, if it falls outside of the [200, 300] range:
+ *  - A unique Error object is returned if the user is logged in and the status code is 403 Forbidden.
+ *    This Error object *should* be consumed by the @tanstack/query code, which indirectly calls HttpClient.
+ *    The current user is then prompted to log in again after being logged out.
+ *  - The `ErrorPage` screen appears in all other scenarios.
+ */
 export async function HttpClient<T = unknown>(
   endpoint: string,
   config: HttpConfig = {}
 ): Promise<T> {
   const init: RequestInit = {
     method: config.method,
-    headers: { "Accept": "*/*" }
+    headers: { "Accept": "*/*", 'x-requested-with': 'XMLHttpRequest' },
+    credentials: "include",
   };
 
   if (config.body) {
@@ -81,44 +157,67 @@ export async function HttpClient<T = unknown>(
 
   const response = await window.fetch(`${baseUrl()}${endpoint}`, init);
 
-  switch (response.status) {
-    case 204:
-    // 204 contains no data, but indicates success
-      return Promise.resolve<T>({} as T);
-    case 401:
-    // Remove auth info from localStorage
-      AuthContext.reset();
-
-      // Show an error toast to notify the user what occurred
-      return Promise.reject(new Error(`[401] Unauthorized: "${endpoint}"`));
-    case 404:
-      return Promise.reject(new Error(`[404] Not found: "${endpoint}"`));
-    case 500:
-      const health = await window.fetch(`${baseUrl()}api/healthz/liveness`);
-      if (!health.ok) {
-        return Promise.reject(
-          new Error(`[500] Offline (Internal server error): "${endpoint}"`, { cause: "OFFLINE" })
-        );
-      }
-      break;
-    default:
-      break;
-  }
-
   const isJson = response.headers.get("Content-Type")?.includes("application/json");
-  const json = isJson ? await response.json() : null;
 
-  // Resolve on success
   if (response.status >= 200 && response.status < 300) {
+    // We received a successful response
+    if (response.status === 204) {
+      // 204 contains no data, but indicates success
+      return Promise.resolve<T>({} as T);
+    }
+
+    // If Content-Type is application/json, then parse response as JSON
+    // otherwise, just resolve the Response object returned by window.fetch
+    // and the consumer can call await response.text() if needed.
     if (isJson) {
-      return Promise.resolve<T>(json as T);
+      return Promise.resolve<T>(await response.json() as T);
     } else {
       return Promise.resolve<T>(response as T);
     }
-  }
+  } else {
+    // This is not a successful response.
+    // It is most likely an error.
+    switch (response.status) {
+    case 403: {
+      if (AuthContext.get().isLoggedIn) {
+        return Promise.reject(new Error("Cookie expired or invalid."));
+      }
+      break;
+    }
+    case 500: {
+      const health = await window.fetch(`${baseUrl()}api/healthz/liveness`);
+      if (!health.ok) {
+        return Promise.reject(
+          new Error(`[500] Offline (Internal server error): "${endpoint}"`)
+        );
+      }
+      break;
+    }
+    case 503: {
+      // Show an error toast to notify the user what occurred
+      return Promise.reject(new Error(`[503] Service unavailable: "${endpoint}"`));
+    }
+    default:
+      break;
+    }
 
-  // Otherwise reject, this is most likely an error
-  return Promise.reject<T>(json as T);
+    let reason = response.statusText;
+    if (isJson) {
+      const json = await response.json();
+      if (Object.hasOwn(json, "message")) {
+        reason = json.message as string;
+      }
+    }
+
+    if (reason.length) {
+      reason = ` (${reason})`;
+    }
+
+    const defaultError = new Error(
+      `HTTP request to '${endpoint}' failed with code ${response.status}${reason}`
+    );
+    return Promise.reject(defaultError);
+  }
 }
 
 const appClient = {
@@ -144,17 +243,33 @@ const appClient = {
   })
 };
 
+
 export const APIClient = {
   auth: {
     login: (username: string, password: string) => appClient.Post("api/auth/login", {
       body: { username, password }
     }),
     logout: () => appClient.Post("api/auth/logout"),
-    validate: () => appClient.Get<void>("api/auth/validate"),
+    validate: async (): Promise<ValidateResponse> => {
+      const response = await appClient.Get<ValidateResponse>("api/auth/validate");
+      return response;
+    },
     onboard: (username: string, password: string) => appClient.Post("api/auth/onboard", {
       body: { username, password }
     }),
-    canOnboard: () => appClient.Get("api/auth/onboard")
+    canOnboard: () => appClient.Get("api/auth/onboard"),
+    updateUser: (req: UserUpdate) => appClient.Patch(`api/auth/user/${req.username_current}`,
+      { body: req }),
+    getOIDCConfig: async () => {
+      try {
+        return await appClient.Get<{ enabled: boolean; authorizationUrl: string; state: string; disableBuiltInLogin: boolean }>("api/auth/oidc/config");
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message?.includes('404')) {
+          return { enabled: false, authorizationUrl: '', state: '', disableBuiltInLogin: false };
+        }
+        throw error;
+      }
+    },
   },
   actions: {
     create: (action: Action) => appClient.Post("api/actions", {
@@ -181,6 +296,7 @@ export const APIClient = {
   },
   download_clients: {
     getAll: () => appClient.Get<DownloadClient[]>("api/download_clients"),
+    getArrTags: (clientID: number) => appClient.Get<ArrTag[]>(`api/download_clients/${clientID}/arr/tags`),
     create: (dc: DownloadClient) => appClient.Post("api/download_clients", {
       body: dc
     }),
@@ -224,6 +340,7 @@ export const APIClient = {
     update: (feed: Feed) => appClient.Put(`api/feeds/${feed.id}`, {
       body: feed
     }),
+    forceRun: (id: number) => appClient.Post(`api/feeds/${id}/forcerun`),
     delete: (id: number) => appClient.Delete(`api/feeds/${id}`),
     deleteCache: (id: number) => appClient.Delete(`api/feeds/${id}/cache`),
     test: (feed: Feed) => appClient.Post("api/feeds/test", {
@@ -240,12 +357,15 @@ export const APIClient = {
     create: (indexer: Indexer) => appClient.Post<Indexer>("api/indexer", {
       body: indexer
     }),
-    update: (indexer: Indexer) => appClient.Put("api/indexer", {
+    update: (indexer: Indexer) => appClient.Put(`api/indexer/${indexer.id}`, {
       body: indexer
     }),
     delete: (id: number) => appClient.Delete(`api/indexer/${id}`),
     testApi: (req: IndexerTestApiReq) => appClient.Post<IndexerTestApiReq>(`api/indexer/${req.id}/api/test`, {
       body: req
+    }),
+    toggleEnable: (id: number, enabled: boolean) => appClient.Patch(`api/indexer/${id}/enabled`, {
+      body: { enabled }
     })
   },
   irc: {
@@ -260,6 +380,9 @@ export const APIClient = {
     restartNetwork: (id: number) => appClient.Get(`api/irc/network/${id}/restart`),
     sendCmd: (cmd: SendIrcCmdRequest) => appClient.Post(`api/irc/network/${cmd.network_id}/cmd`, {
       body: cmd
+    }),
+    reprocessAnnounce: (networkId: number, channel: string, msg: string) => appClient.Post(`api/irc/network/${networkId}/channel/${channel}/announce/process`, {
+      body: { msg: msg }
     }),
     events: (network: string) => new EventSource(
       `${sseBaseUrl()}api/irc/events?stream=${encodeRFC3986URIComponent(network)}`,
@@ -287,10 +410,40 @@ export const APIClient = {
       body: notification
     })
   },
+  lists: {
+    list: () => appClient.Get<List[]>("api/lists"),
+    getByID: (id: number) => appClient.Get<List>(`api/lists/${id}`),
+    store: (list: List) => appClient.Post("api/lists", {
+      body: list
+    }),
+    update: (list: List) => appClient.Put(`api/lists/${list.id}`, {
+      body: list
+    }),
+    delete: (id: number) => appClient.Delete(`api/lists/${id}`),
+    refreshList: (id: number) => appClient.Post(`api/lists/${id}/refresh`),
+    refreshAll: () => appClient.Post(`api/lists/refresh`),
+    test: (list: List) => appClient.Post("api/lists/test", {
+      body: list
+    })
+  },
+  proxy: {
+    list: () => appClient.Get<Proxy[]>("api/proxy"),
+    getByID: (id: number) => appClient.Get<Proxy>(`api/proxy/${id}`),
+    store: (proxy: ProxyCreate) => appClient.Post("api/proxy", {
+      body: proxy
+    }),
+    update: (proxy: Proxy) => appClient.Put(`api/proxy/${proxy.id}`, {
+      body: proxy
+    }),
+    delete: (id: number) => appClient.Delete(`api/proxy/${id}`),
+    test: (proxy: Proxy) => appClient.Post("api/proxy/test", {
+      body: proxy
+    })
+  },
   release: {
     find: (query?: string) => appClient.Get<ReleaseFindResponse>(`api/release${query}`),
     findRecent: () => appClient.Get<ReleaseFindResponse>("api/release/recent"),
-    findQuery: (offset?: number, limit?: number, filters?: ReleaseFilter[]) => {
+    findQuery: (offset?: number, limit?: number, filters?: ColumnFilter[]) => {
       const params: Record<string, string[]> = {
         indexer: [],
         push_status: [],
@@ -301,12 +454,26 @@ export const APIClient = {
         if (!filter.value)
           return;
 
-        if (filter.id == "indexer") {
-          params["indexer"].push(filter.value);
+        if (filter.id == "indexer.identifier") {
+          if (typeof filter.value === "string") {
+            params["indexer"].push(filter.value);
+          }
+        } else if (filter.id == "indexer_identifier") {
+          if (typeof filter.value === "string") {
+            params["indexer"].push(filter.value);
+          }
         } else if (filter.id === "action_status") {
-          params["push_status"].push(filter.value);
-        } else if (filter.id == "torrent_name") {
-          params["q"].push(filter.value);
+          if (typeof filter.value === "string") {
+            params["push_status"].push(filter.value);
+          } // push_status is the correct value here otherwise the releases table won't load when filtered by push status
+        } else if (filter.id === "push_status") {
+          if (typeof filter.value === "string") {
+            params["push_status"].push(filter.value);
+          }
+        } else if (filter.id == "name") {
+          if (typeof filter.value === "string") {
+            params["q"].push(filter.value);
+          }
         }
       });
 
@@ -320,12 +487,27 @@ export const APIClient = {
     },
     indexerOptions: () => appClient.Get<string[]>("api/release/indexers"),
     stats: () => appClient.Get<ReleaseStats>("api/release/stats"),
-    delete: (olderThan: number) => appClient.Delete("api/release", {
-      queryString: { olderThan }
-    }),
+    delete: (params: DeleteParams) => {
+      return appClient.Delete("api/release", {
+        queryString: {
+          olderThan: params.olderThan,
+          indexer: params.indexers,
+          releaseStatus: params.releaseStatuses,
+        }
+      });
+    },
     replayAction: (releaseId: number, actionId: number) => appClient.Post(
       `api/release/${releaseId}/actions/${actionId}/retry`
-    )
+    ),
+    profiles: {
+      duplicates: {
+        list: () => appClient.Get<ReleaseProfileDuplicate[]>(`api/release/profiles/duplicate`),
+        delete: (id: number) => appClient.Delete(`api/release/profiles/duplicate/${id}`),
+        store: (profile: ReleaseProfileDuplicate) => appClient.Post(`api/release/profiles/duplicate`, {
+          body: profile
+        }),
+      }
+    }
   },
   updates: {
     check: () => appClient.Get("api/updates/check"),
